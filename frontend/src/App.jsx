@@ -1,30 +1,15 @@
-import { useEffect, useState } from 'react'
-import axios from 'axios'
+import React, { useState } from 'react';
+import Login from './pages/Login';
+import Dashboard from './pages/Dashboard'; // You will create this next!
 
 function App() {
-  const [message, setMessage] = useState("Loading...")
+  const [user, setUser] = useState(null);
 
-  //Calling FastAPI
-  useEffect(() => {
-    axios.get('http://127.0.0.1:8000/')
-      .then(response => {
-        setMessage(response.data.message)
-      })
-      .catch(error => {
-        console.error("Error fetching data:", error)
-        setMessage("Backend is not responding!")
-      })
-  }, [])
+  if (!user) {
+    return <Login setUser={setUser} />;
+  }
 
-  return (
-    <div style={{ textAlign: 'center', marginTop: '50px', fontFamily: 'sans-serif' }}>
-      <h1>Robot Management System</h1>
-      <div style={{ padding: '20px', border: '1px solid #ccc', display: 'inline-block' }}>
-        <p>Message from Backend:</p>
-        <h2 style={{ color: '#007bff' }}>{message}</h2>
-      </div>
-    </div>
-  )
+  return <Dashboard user={user} setUser={setUser} />;
 }
 
-export default App
+export default App;

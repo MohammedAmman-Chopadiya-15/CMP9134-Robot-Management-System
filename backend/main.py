@@ -1,14 +1,14 @@
-from fastapi import FastAPI, Depends
+from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from sqlalchemy.orm import Session
 import models, database
+from routers import auth, missions # Import your new routers
 
-# Create the tables in the .db file
+# Initialize Database
 models.Base.metadata.create_all(bind=database.engine)
 
-app = FastAPI()
+app = FastAPI(title="Robot Management System API")
 
-# Your existing CORS config
+# CORS Setup
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["http://localhost:5173"],
@@ -17,19 +17,10 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+# Include Routers
+app.include_router(auth.router)
+app.include_router(missions.router)
+
 @app.get("/")
 def root():
-    return {"message": "Cloud Backend Active & Database Initialized!"}
-
-# A test route to check if we can write to the DB
-@app.post("/test-log")
-def create_test_log(db: Session = Depends(database.get_db)):
-    new_mission = models.Mission(
-        command="INIT_TEST", 
-        status="SUCCESS", 
-        robot_id="ROBOT_01"
-    )
-    db.add(new_mission)
-    db.commit()
-    db.refresh(new_mission)
-    return {"status": "Log Created", "id": new_mission.id}
+    return {"message": "Cloud API Gateway Active"}
