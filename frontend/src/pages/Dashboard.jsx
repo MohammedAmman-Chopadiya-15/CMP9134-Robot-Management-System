@@ -1,38 +1,53 @@
 import React, { useState, useEffect } from 'react';
 import axios from 'axios';
-import { Bot, ChevronUp, ChevronDown, ChevronLeft, ChevronRight, LogOut, History } from 'lucide-react';
+import { Bot, ChevronUp, ChevronDown, ChevronLeft, ChevronRight, LogOut, History, Cpu } from 'lucide-react';
 
 const Dashboard = ({ user, setUser }) => {
+
+  const [mapData, setMapData] = useState(null);
   const [robotPos, setRobotPos] = useState({ x: 10, y: 10 });
   const [backendStatus, setBackendStatus] = useState("Checking...");
-  const [missions, setMissions] = useState([]); // To store history
+  const [robotOnline, setRobotOnline] = useState(false);
+  const [missions, setMissions] = useState([]);
 
-  // Fetch initial status and mission history
   useEffect(() => {
-    const fetchData = async () => {
+    const checkConnections = async () => {
       try {
+        // 1. Check Backend
         const statusRes = await axios.get('http://127.0.0.1:8000/');
         setBackendStatus(statusRes.data.message);
         
-        // We will build this endpoint next!
+        // 2. Check Robot Hardware
+        const robotRes = await axios.get('http://127.0.0.1:8000/missions/status');
+        setRobotOnline(robotRes.data.connected);
+
+        // 3. Fetch Map
+        const mapRes = await axios.get('http://127.0.0.1:8000/missions/map');
+        setMapData(mapRes.data.grid);
+
+        // 4. Fetch History
         const historyRes = await axios.get('http://127.0.0.1:8000/missions/history');
-        setMissions(historyRes.data.slice(0, 5)); // Show last 5
+        setMissions(historyRes.data.slice(0, 8));
       } catch (err) {
         setBackendStatus("Backend Offline");
+        setRobotOnline(false);
       }
     };
-    fetchData();
+
+    checkConnections();
+    const interval = setInterval(checkConnections, 3000); 
+    return () => clearInterval(interval);
   }, []);
 
   const handleMove = async (direction) => {
+    if (!robotOnline) return;
     try {
       const res = await axios.post('http://127.0.0.1:8000/missions/move', {
         username: user.username,
-        direction: direction
+        direction: direction 
       });
 
       if (res.data.status === "SUCCESS") {
-        // 1. Update Map Position
         setRobotPos(prev => {
           let { x, y } = prev;
           if (direction === 'north' && y < 20) y++;
@@ -41,28 +56,30 @@ const Dashboard = ({ user, setUser }) => {
           if (direction === 'west' && x > 0) x--;
           return { x, y };
         });
-
-        // 2. Add to local history list immediately
-        const newLog = { 
-            id: Date.now(), 
-            command: `MOVE_${direction.upper()}`, 
-            timestamp: new Date().toLocaleTimeString() 
-        };
-        setMissions(prev => [newLog, ...prev].slice(0, 5));
       }
     } catch (err) {
-      alert(err.response?.data?.detail || "Movement restricted");
+      console.error("Move failed");
     }
   };
 
   const renderGrid = () => {
+    if (!mapData) return <div className="p-20 text-slate-500 animate-pulse">INIT_MAP...</div>;
+
     const cells = [];
-    for (let y = 20; y >= 0; y--) {
-      for (let x = 0; x <= 20; x++) {
-        const isRobotHere = robotPos.x === x && robotPos.y === y;
+    for (let y = 0; y < 21; y++) {
+      for (let x = 0; x < 21; x++) {
+        const isObstacle = mapData[y][x] === 1;
+        const isRobotHere = robotPos.x === x && robotPos.y === (20 - y);
+        
         cells.push(
-          <div key={`${x}-${y}`} className={`w-6 h-6 border border-gray-100 flex items-center justify-center ${isRobotHere ? 'bg-blue-500 text-white animate-pulse' : 'bg-white'}`}>
-            {isRobotHere ? <Bot size={16} /> : null}
+          <div 
+            key={`${x}-${y}`} 
+            className={`w-5 h-5 md:w-6 md:h-6 border-[0.5px] border-slate-800/50 flex items-center justify-center transition-all duration-300
+              ${isRobotHere ? 'bg-blue-500 text-white z-20 scale-125 shadow-[0_0_15px_rgba(59,130,246,0.8)] rounded-sm' : 
+                isObstacle ? 'bg-slate-950' : 'bg-slate-100'}`}
+          >
+            {/* ✅ Force the bot icon to show if isRobotHere is true */}
+            {isRobotHere && <Bot size={16} strokeWidth={3} className="animate-bounce" />}
           </div>
         );
       }
@@ -71,60 +88,61 @@ const Dashboard = ({ user, setUser }) => {
   };
 
   return (
-    <div className="min-h-screen bg-gray-50 p-4 md:p-8 font-sans">
-      {/* Header Section */}
-      <div className="max-w-6xl mx-auto flex justify-between items-center mb-8 bg-white p-4 rounded-xl shadow-sm border border-gray-100">
+    <div className="min-h-screen bg-slate-900 text-slate-100 p-4 md:p-8 font-sans">
+      <div className="max-w-6xl mx-auto flex justify-between items-center mb-8 bg-slate-800 p-6 rounded-2xl shadow-xl border border-slate-700">
         <div>
-          <h1 className="text-2xl font-bold text-gray-800">Mission Control</h1>
-          <p className="text-sm text-gray-500">User: <span className="font-semibold text-blue-600 uppercase">{user.username}</span> | Role: <span className="italic">{user.role}</span></p>
+          <h1 className="text-3xl font-black tracking-tight">MISSION CONTROL</h1>
+          <p className="text-slate-400 text-sm">USER: <span className="text-blue-400 font-mono">{user.username}</span> | ROLE: <span className="text-amber-400 font-mono">{user.role}</span></p>
         </div>
-        <div className="flex items-center gap-4">
-            <span className={`px-3 py-1 rounded-full text-xs font-medium ${backendStatus.includes('Active') ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'}`}>
-                {backendStatus}
-            </span>
-            <button onClick={() => setUser(null)} className="flex items-center gap-2 text-gray-600 hover:text-red-600 transition-colors">
-                <LogOut size={18} />
-                <span className="text-sm font-medium">Logout</span>
+        
+        <div className="flex items-center gap-6">
+            <div className="flex items-center gap-2 px-4 py-2 bg-slate-900 rounded-full border border-slate-700">
+                <Cpu size={18} className={robotOnline ? "text-green-400" : "text-red-400"} />
+                <span className={`text-xs font-bold ${robotOnline ? "text-green-400" : "text-red-400"}`}>
+                    {robotOnline ? "ROBOT ONLINE" : "ROBOT OFFLINE"}
+                </span>
+            </div>
+            <button onClick={() => setUser(null)} className="p-2 hover:bg-red-500/20 rounded-lg text-slate-400 hover:text-red-400 transition-all">
+                <LogOut size={24} />
             </button>
         </div>
       </div>
 
       <div className="max-w-6xl mx-auto grid grid-cols-1 lg:grid-cols-3 gap-8">
-        {/* Left: Map */}
-        <div className="lg:col-span-2 flex justify-center">
-          <div className="inline-grid grid-cols-[repeat(21,minmax(0,1fr))] border-4 border-gray-800 bg-white shadow-2xl">
+        {/* The Grid Map */}
+        <div className="lg:col-span-2 flex justify-center items-center bg-slate-800 p-4 rounded-3xl shadow-2xl border border-slate-700">
+          <div className="inline-grid grid-cols-[repeat(21,minmax(0,1fr))] bg-slate-900 border-2 border-slate-950">
             {renderGrid()}
           </div>
         </div>
 
-        {/* Right: Controls & History */}
+        {/* Controls & Logs */}
         <div className="flex flex-col gap-6">
-          <div className="bg-white p-6 rounded-2xl shadow-sm border border-gray-100">
-            <h2 className="text-lg font-bold mb-4 text-gray-700 flex items-center gap-2">Navigation</h2>
-            <div className="grid grid-cols-3 gap-3 max-w-[200px] mx-auto">
+          <div className="bg-slate-800 p-8 rounded-3xl shadow-xl border border-slate-700">
+            <h2 className="text-xl font-bold mb-6 text-slate-300">NAVIGATION</h2>
+            <div className="grid grid-cols-3 gap-4 max-w-[220px] mx-auto">
               <div />
-              <button onClick={() => handleMove('north')} disabled={user.role !== 'commander'} className="p-4 bg-gray-100 rounded-xl hover:bg-blue-500 hover:text-white disabled:opacity-30"><ChevronUp /></button>
+              <NavButton icon={<ChevronUp />} onClick={() => handleMove('north')} disabled={!robotOnline || user.role !== 'commander'} />
               <div />
-              <button onClick={() => handleMove('west')} disabled={user.role !== 'commander'} className="p-4 bg-gray-100 rounded-xl hover:bg-blue-500 hover:text-white disabled:opacity-30"><ChevronLeft /></button>
-              <div className="flex items-center justify-center font-bold text-gray-400">POS</div>
-              <button onClick={() => handleMove('east')} disabled={user.role !== 'commander'} className="p-4 bg-gray-100 rounded-xl hover:bg-blue-500 hover:text-white disabled:opacity-30"><ChevronRight /></button>
+              <NavButton icon={<ChevronLeft />} onClick={() => handleMove('west')} disabled={!robotOnline || user.role !== 'commander'} />
+              <div className="flex items-center justify-center text-xs font-black text-slate-600">OS</div>
+              <NavButton icon={<ChevronRight />} onClick={() => handleMove('east')} disabled={!robotOnline || user.role !== 'commander'} />
               <div />
-              <button onClick={() => handleMove('south')} disabled={user.role !== 'commander'} className="p-4 bg-gray-100 rounded-xl hover:bg-blue-500 hover:text-white disabled:opacity-30"><ChevronDown /></button>
+              <NavButton icon={<ChevronDown />} onClick={() => handleMove('south')} disabled={!robotOnline || user.role !== 'commander'} />
               <div />
             </div>
           </div>
 
-          {/* New Mission History Component */}
-          <div className="bg-white p-6 rounded-2xl shadow-sm border border-gray-100">
-            <h2 className="text-sm font-bold text-gray-400 uppercase mb-4 flex items-center gap-2">
-                <History size={16} /> Recent Missions
+          <div className="bg-slate-800 p-8 rounded-3xl shadow-xl border border-slate-700 flex-1">
+            <h2 className="text-sm font-black text-slate-500 uppercase mb-6 flex items-center gap-2">
+                <History size={18} /> RECENT LOGS
             </h2>
-            <div className="space-y-3">
-              {missions.length === 0 ? <p className="text-xs text-gray-400 italic">No missions logged.</p> : 
+            <div className="space-y-4">
+              {missions.length === 0 ? <p className="text-slate-500 italic text-sm text-center">No mission data.</p> : 
                 missions.map(m => (
-                  <div key={m.id} className="flex justify-between text-xs border-l-2 border-blue-500 pl-2">
-                    <span className="font-mono font-bold text-gray-700">{m.command}</span>
-                    <span className="text-gray-400">{m.timestamp}</span>
+                  <div key={m.id} className="flex justify-between items-center p-3 bg-slate-900/50 rounded-xl border-l-4 border-blue-500">
+                    <span className="font-mono font-bold text-sm text-slate-200">{m.command}</span>
+                    <span className="text-[10px] text-slate-500">{new Date(m.timestamp).toLocaleTimeString()}</span>
                   </div>
                 ))
               }
@@ -135,5 +153,16 @@ const Dashboard = ({ user, setUser }) => {
     </div>
   );
 };
+
+// Simple helper component for buttons
+const NavButton = ({ icon, onClick, disabled }) => (
+  <button 
+    onClick={onClick} 
+    disabled={disabled}
+    className="p-4 bg-slate-700 rounded-2xl hover:bg-blue-600 hover:scale-105 transition-all disabled:opacity-20 disabled:hover:bg-slate-700 disabled:scale-100 shadow-lg"
+  >
+    {icon}
+  </button>
+);
 
 export default Dashboard;
