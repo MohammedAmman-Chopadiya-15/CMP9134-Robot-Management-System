@@ -12,12 +12,14 @@ router = APIRouter(
 
 @router.get("/status")
 async def get_robot_hardware_status():
+    """Checks if the Robot Docker container is reachable."""
     async with httpx.AsyncClient() as client:
         try:
             response = await client.get(f"{ROBOT_BASE_URL}/status", timeout=1.0)
             return {"connected": True, "details": response.json()}
         except httpx.RequestError:
-            return {"connected": False, "message": "Robot container unreachable"}
+            return {"connected": False, "message": "Robot container unreachable on port 5000"}
+
 
 @router.post("/move")
 async def move_robot(data: schemas.MoveRequest, db: Session = Depends(database.get_db)):
@@ -28,23 +30,37 @@ async def move_robot(data: schemas.MoveRequest, db: Session = Depends(database.g
 
     async with httpx.AsyncClient() as client:
         try:
-            # 2. Get Current Hardware State
+            # 2. Get Current Status and Map
             status_res = await client.get(f"{ROBOT_BASE_URL}/status")
+            map_res = await client.get(f"{ROBOT_BASE_URL}/map")
+            
             curr_pos = status_res.json()["position"]
+            grid = map_res.json()["grid"]
+            
+            # 3. Calculate Target
             target_x, target_y = curr_pos["x"], curr_pos["y"]
             
-            # 3. Handle Relative Directional Movement
-            direction = data.direction.lower()
-            if direction == "north" and target_y < 20: target_y += 1
-            elif direction == "south" and target_y > 0: target_y -= 1
-            elif direction == "east" and target_x < 20: target_x += 1
-            elif direction == "west" and target_x > 0: target_x -= 1
+            # CHECK: Are we doing Relative (direction) or Absolute (manual) move?
+            if data.direction == "manual":
+                # Use absolute coordinates from frontend
+                target_x = data.target_x
+                target_y = data.target_y
+            else:
+                # Use relative direction logic
+                direction = data.direction.lower()
+                if direction == "north" and target_y < 20: target_y += 1
+                elif direction == "south" and target_y > 0: target_y -= 1
+                elif direction == "east" and target_x < 20: target_x += 1
+                elif direction == "west" and target_x > 0: target_x -= 1
 
-            # 4. Safety Check (Out of Bounds)
+            # 4. Safety Check: Obstacle or Out of Bounds
             if target_x < 0 or target_x > 20 or target_y < 0 or target_y > 20:
                 raise HTTPException(status_code=400, detail="Target out of bounds")
+                
+            if grid[20 - target_y][target_x] == 1:
+                raise HTTPException(status_code=400, detail="Collision Imminent: Targeted location is blocked.")
 
-            # 5. Execute Command
+            # 5. Send to Hardware
             robot_response = await client.post(
                 f"{ROBOT_BASE_URL}/move", 
                 json={"x": target_x, "y": target_y}
@@ -57,9 +73,10 @@ async def move_robot(data: schemas.MoveRequest, db: Session = Depends(database.g
             raise HTTPException(status_code=503, detail="Robot hardware is offline")
 
     # 6. Log Mission
+    cmd_text = f"GOTO_{target_x}_{target_y}" if data.direction == "manual" else f"MOVE_{data.direction.upper()}"
     new_mission = models.Mission(
         robot_id="XR-900",
-        command=f"MOVE_{data.direction.upper()}",
+        command=cmd_text,
         status="SUCCESS"
     )
     db.add(new_mission)
@@ -69,10 +86,12 @@ async def move_robot(data: schemas.MoveRequest, db: Session = Depends(database.g
 
 @router.get("/history")
 def get_mission_history(db: Session = Depends(database.get_db)):
-    return db.query(models.Mission).order_by(models.Mission.timestamp.desc()).limit(15).all()
+    # Returns the 10 most recent missions, newest first
+    return db.query(models.Mission).order_by(models.Mission.timestamp.desc()).limit(10).all()
 
 @router.get("/map")
 async def get_robot_map():
+    """Proxy to fetch the 2D grid from the robot hardware."""
     async with httpx.AsyncClient() as client:
         try:
             response = await client.get(f"{ROBOT_BASE_URL}/map", timeout=2.0)
