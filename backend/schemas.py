@@ -16,3 +16,5 @@ class UserLogin(BaseModel):
 class MoveRequest(BaseModel):
     username: str
     direction: str
+    target_x: int = None
+    target_y: int = None
