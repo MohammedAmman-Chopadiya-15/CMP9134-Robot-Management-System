@@ -51,30 +51,41 @@ const Dashboard = ({ user, setUser }) => {
     return () => clearInterval(interval);
   }, []);
 
-  const handleMove = async (direction) => {
-    if (!robotOnline || telemetry.battery <= 0) return;
-    
-    try {
-      const res = await axios.post('http://127.0.0.1:8000/missions/move', {
-        username: user.username,
-        direction: direction 
-      });
+const handleMove = async (direction) => {
+  if (!robotOnline || telemetry.battery <= 0 || !mapData) return;
 
-      if (res.data.status === "SUCCESS") {
-        // Local optimistic update for smoother UI
-        setRobotPos(prev => {
-          let { x, y } = prev;
-          if (direction === 'north' && y < 20) y++;
-          if (direction === 'south' && y > 0) y--;
-          if (direction === 'east' && x < 20) x++;
-          if (direction === 'west' && x > 0) x--;
-          return { x, y };
-        });
-      }
-    } catch (err) {
-      console.error("Move failed:", err.response?.data?.detail);
+  // 1. Calculate the "Target" spot locally
+  let targetX = robotPos.x;
+  let targetY = robotPos.y;
+
+  if (direction === 'north' && targetY < 20) targetY++;
+  if (direction === 'south' && targetY > 0) targetY--;
+  if (direction === 'east' && targetX < 20) targetX++;
+  if (direction === 'west' && targetX > 0) targetX--;
+
+  // 2. Client-Side Safety Check
+  // We use the same coordinate-to-array mapping: (20 - y)
+  if (mapData[20 - targetY][targetX] === 1) {
+    // You can add a subtle shake animation or a sound here later!
+    console.warn("Manual override: Collision detected at", targetX, targetY);
+    return; // Stop the function here so no API call is even made
+  }
+
+  // 3. Proceed with API call if the path is clear
+  try {
+    const res = await axios.post('http://127.0.0.1:8000/missions/move', {
+      username: user.username,
+      direction: direction 
+    });
+
+    if (res.data.status === "SUCCESS") {
+      setRobotPos(res.data.new_position);
     }
-  };
+  } catch (err) {
+    // This will now catch the "Collision Imminent" 400 error from the backend
+    alert(err.response?.data?.detail || "Move failed");
+  }
+};
 
   const renderGrid = () => {
     if (!mapData) return <div className="p-20 text-slate-500 animate-pulse font-mono text-xl">INITIALIZING_MAP_ARRAY...</div>;
