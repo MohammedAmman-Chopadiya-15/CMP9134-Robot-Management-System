@@ -98,3 +98,32 @@ async def get_robot_map():
             return response.json()
         except httpx.RequestError:
             raise HTTPException(status_code=503, detail="Robot map data unreachable")
+        
+@router.post("/reset")
+async def reset_robot_hardware(username: str, db: Session = Depends(database.get_db)):
+
+    user = db.query(models.User).filter(models.User.username == username).first()
+    if not user or user.role != "commander":
+        raise HTTPException(status_code=403, detail="Unauthorized: Reset requires Commander privileges")
+
+    async with httpx.AsyncClient() as client:
+        try:
+            # 2. Forward to Robot Container
+            response = await client.post(f"{ROBOT_BASE_URL}/reset", timeout=5.0)
+            
+            if response.status_code != 200:
+                raise HTTPException(status_code=502, detail="Hardware reset failed")
+                
+        except httpx.RequestError:
+            raise HTTPException(status_code=503, detail="Robot hardware unreachable")
+
+    # 3. Log the system-level reset mission
+    new_mission = models.Mission(
+        robot_id="XR-900",
+        command="SYSTEM_RESET",
+        status="SUCCESS"
+    )
+    db.add(new_mission)
+    db.commit()
+    
+    return {"message": "System reset successful", "status": "SUCCESS"}
