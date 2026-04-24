@@ -1,7 +1,7 @@
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 import httpx
-import models, schemas, database
+import models, schemas, database, security # Added security import
 
 ROBOT_BASE_URL = "http://localhost:5000/api"
 
@@ -10,32 +10,55 @@ router = APIRouter(
     tags=["Missions"]
 )
 
+# --- SECURE TELEMETRY ROUTES ---
+
 @router.get("/status")
-async def get_robot_hardware_status():
-    """Checks if the Robot Docker container is reachable."""
+async def get_robot_hardware_status(current_user: dict = Depends(security.get_current_user_data)):
+    """Checks hardware status. Accessible by any authenticated user (Viewer/Commander)."""
     async with httpx.AsyncClient() as client:
         try:
             response = await client.get(f"{ROBOT_BASE_URL}/status", timeout=1.0)
             return {"connected": True, "details": response.json()}
         except httpx.RequestError:
-            return {"connected": False, "message": "Robot container unreachable on port 5000"}
+            return {"connected": False, "message": "Robot container unreachable"}
 
+@router.get("/history")
+def get_mission_history(
+    db: Session = Depends(database.get_db),
+    current_user: dict = Depends(security.get_current_user_data)
+):
+    """Returns mission audit trail for authenticated users."""
+    return db.query(models.Mission).order_by(models.Mission.timestamp.desc()).limit(10).all()
+
+@router.get("/map")
+async def get_robot_map(current_user: dict = Depends(security.get_current_user_data)):
+    """Proxy for 2D grid data. Authenticated access only."""
+    async with httpx.AsyncClient() as client:
+        try:
+            response = await client.get(f"{ROBOT_BASE_URL}/map", timeout=2.0)
+            return response.json()
+        except httpx.RequestError:
+            raise HTTPException(status_code=503, detail="Robot map data unreachable")
+
+# --- SECURE COMMAND ROUTES (RBAC PROTECTED) ---
 
 @router.post("/move")
-async def move_robot(data: schemas.MoveRequest, db: Session = Depends(database.get_db)):
-    # 1. RBAC Check
-    user = db.query(models.User).filter(models.User.username == data.username).first()
-    if not user or user.role != "commander":
-        raise HTTPException(status_code=403, detail="Only Commanders can move the robot")
+async def move_robot(
+    data: schemas.MoveRequest, 
+    db: Session = Depends(database.get_db),
+    current_user: dict = Depends(security.get_current_user_data) # 🔒 JWT Guard
+):
+
+    if current_user["role"] != "commander":
+        raise HTTPException(status_code=403, detail="RBAC: Only Commanders can move the robot")
 
     async with httpx.AsyncClient() as client:
         try:
-            # 2. Synchronize Current State (Get only what we need)
+            # Synchronize position
             status_res = await client.get(f"{ROBOT_BASE_URL}/status")
             curr_pos = status_res.json()["position"]
             target_x, target_y = curr_pos["x"], curr_pos["y"]
-            
-            # 3. Calculate Target Coordinates
+
             if data.direction == "manual":
                 target_x, target_y = data.target_x, data.target_y
             else:
@@ -45,74 +68,52 @@ async def move_robot(data: schemas.MoveRequest, db: Session = Depends(database.g
                 elif direction == "east" and target_x < 20: target_x += 1
                 elif direction == "west" and target_x > 0: target_x -= 1
 
-            # 4. Out of Bounds Check (Keep this, as it's a protocol requirement)
             if not (0 <= target_x <= 20 and 0 <= target_y <= 20):
                 raise HTTPException(status_code=400, detail="Target out of bounds")
 
-            # 🚀 REMOVED: The manual 'grid[20-y]' collision check. 
-            # We let the Robot Hardware (Source of Truth) determine if a cell is blocked.
-
-            # 5. Dispatch to Hardware
             robot_response = await client.post(
                 f"{ROBOT_BASE_URL}/move", 
                 json={"x": target_x, "y": target_y}
             )
             
-            # If the hardware says it's blocked, it returns a 400. We pass that to the UI.
             if robot_response.status_code != 200:
-                error_detail = robot_response.json().get("detail", "Movement rejected by hardware")
+                error_detail = robot_response.json().get("detail", "Movement rejected")
                 raise HTTPException(status_code=400, detail=error_detail)
                 
         except httpx.RequestError:
-            raise HTTPException(status_code=503, detail="Robot hardware is offline")
+            raise HTTPException(status_code=503, detail="Robot hardware offline")
 
-    # 6. Log Mission
+
     cmd_text = f"GOTO_{target_x}_{target_y}" if data.direction == "manual" else f"MOVE_{data.direction.upper()}"
-    new_mission = models.Mission(robot_id="XR-900", command=cmd_text, status="SUCCESS")
+    new_mission = models.Mission(
+        robot_id="XR-900", 
+        command=cmd_text, 
+        status="SUCCESS",
+
+    )
     db.add(new_mission)
     db.commit()
     
     return {"status": "SUCCESS", "new_position": {"x": target_x, "y": target_y}}
 
-@router.get("/history")
-def get_mission_history(db: Session = Depends(database.get_db)):
-    # Returns the 10 most recent missions, newest first
-    return db.query(models.Mission).order_by(models.Mission.timestamp.desc()).limit(10).all()
-
-@router.get("/map")
-async def get_robot_map():
-    """Proxy to fetch the 2D grid from the robot hardware."""
-    async with httpx.AsyncClient() as client:
-        try:
-            response = await client.get(f"{ROBOT_BASE_URL}/map", timeout=2.0)
-            return response.json()
-        except httpx.RequestError:
-            raise HTTPException(status_code=503, detail="Robot map data unreachable")
-        
 @router.post("/reset")
-async def reset_robot_hardware(username: str, db: Session = Depends(database.get_db)):
+async def reset_robot_hardware(
+    db: Session = Depends(database.get_db),
+    current_user: dict = Depends(security.get_current_user_data) # 🔒 JWT Guard
+):
 
-    user = db.query(models.User).filter(models.User.username == username).first()
-    if not user or user.role != "commander":
+    if current_user["role"] != "commander":
         raise HTTPException(status_code=403, detail="Unauthorized: Reset requires Commander privileges")
 
     async with httpx.AsyncClient() as client:
         try:
-            # 2. Forward to Robot Container
             response = await client.post(f"{ROBOT_BASE_URL}/reset", timeout=5.0)
-            
             if response.status_code != 200:
                 raise HTTPException(status_code=502, detail="Hardware reset failed")
-                
         except httpx.RequestError:
             raise HTTPException(status_code=503, detail="Robot hardware unreachable")
 
-    # 3. Log the system-level reset mission
-    new_mission = models.Mission(
-        robot_id="XR-900",
-        command="SYSTEM_RESET",
-        status="SUCCESS"
-    )
+    new_mission = models.Mission(robot_id="XR-900", command="SYSTEM_RESET", status="SUCCESS")
     db.add(new_mission)
     db.commit()
     
