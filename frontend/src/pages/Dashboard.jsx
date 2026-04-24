@@ -12,13 +12,12 @@ const Dashboard = ({ user, token, onLogout }) => {
   const [backendStatus, setBackendStatus] = useState("Connecting...");
   const [robotOnline, setRobotOnline] = useState(false);
   const [missions, setMissions] = useState([]);
-  const [telemetry, setTelemetry] = useState({ id: "---", battery: 0, state: "UNKNOWN" });
+  const [telemetry, setTelemetry] = useState({ id: "---", battery: 0, state: "IDLE" });
   const [manualInput, setManualInput] = useState({ x: 0, y: 0 });
   const [isProcessing, setIsProcessing] = useState(false);
 
   const isViewer = user.role === 'viewer';
 
-  // ✅ Always use the freshest token for headers
   const getAuthHeader = useCallback(() => {
     return { headers: { Authorization: `Bearer ${token}` } };
   }, [token]);
@@ -38,7 +37,6 @@ const Dashboard = ({ user, token, onLogout }) => {
       return;
     }
 
-    // 1. WebSocket initialization
     const socket = new WebSocket(`ws://localhost:8000/ws/telemetry?token=${token}`);
 
     socket.onmessage = (event) => {
@@ -131,7 +129,7 @@ const Dashboard = ({ user, token, onLogout }) => {
   };
 
   return (
-    <div className="h-screen w-screen bg-slate-950 text-slate-100 flex flex-col p-6 overflow-hidden font-sans">
+    <div className="h-screen w-screen bg-slate-950 text-slate-100 flex flex-col p-6 overflow-hidden font-sans relative">
       
       {/* HEADER SECTION */}
       <div className="flex-none flex justify-between items-center mb-6 bg-slate-900 p-5 rounded-[2rem] shadow-2xl border border-slate-800">
@@ -149,14 +147,25 @@ const Dashboard = ({ user, token, onLogout }) => {
         </div>
         
         <div className="flex items-center gap-4">
-          <div className="bg-slate-950 px-4 py-2.5 rounded-2xl border border-slate-800 flex flex-col shadow-inner">
+          <div className="bg-slate-950 px-4 py-2.5 rounded-2xl border border-slate-800 flex flex-col shadow-inner min-w-[80px]">
               <span className="text-[8px] font-black text-slate-500 uppercase tracking-widest mb-1">Power</span>
               <div className="flex items-center gap-2">
                 <Zap size={12} className={telemetry.battery > 20 ? "text-green-400" : "text-red-500 animate-pulse"} />
                 <span className="text-xs font-mono font-bold">{telemetry.battery}%</span>
               </div>
           </div>
-          <button onClick={onLogout} className="p-4 bg-slate-800 hover:bg-red-900/40 rounded-2xl text-slate-400 hover:text-red-400 border border-slate-700 active:scale-90 shadow-lg">
+
+          <div className="bg-slate-950 px-4 py-2.5 rounded-2xl border border-slate-800 flex flex-col shadow-inner min-w-[110px]">
+            <span className="text-[8px] font-black text-slate-500 uppercase tracking-widest mb-1">System State</span>
+            <div className="flex items-center gap-2">
+              {telemetry.state === 'STUCK' ? <ShieldAlert size={14} className="text-red-500 animate-bounce" /> : <Cpu size={14} className="text-blue-400" />}
+              <span className={`text-xs font-black uppercase tracking-tighter ${telemetry.state === 'MOVING' ? 'text-green-400 animate-pulse' : telemetry.state === 'STUCK' ? 'text-red-500' : 'text-blue-400'}`}>
+                {telemetry.state}
+              </span>
+            </div>
+          </div>
+
+          <button onClick={onLogout} className="p-4 bg-slate-800 hover:bg-red-900/40 rounded-2xl text-slate-400 hover:text-red-400 border border-slate-700 active:scale-90 shadow-lg transition-all">
             <LogOut size={24} />
           </button>
         </div>
@@ -164,37 +173,54 @@ const Dashboard = ({ user, token, onLogout }) => {
 
       <div className="flex-1 flex gap-6 min-h-0 w-full overflow-hidden">
         
-        {/* MAP PANEL */}
-        <div className="flex-[2.5] bg-slate-900 rounded-[3rem] border border-slate-800 flex items-center justify-center p-16 overflow-hidden shadow-2xl">
-           {renderGrid()}
+        {/* ✅ MAIN PANEL: Grid + HUD Coordinates */}
+        <div className="flex-[2.5] bg-slate-900 rounded-[3rem] border border-slate-800 flex items-center justify-center p-12 overflow-hidden shadow-2xl gap-12">
+           <div className="h-full flex items-center justify-center">
+             {renderGrid()}
+           </div>
+
+           {/* HUD STATS NEXT TO GRID */}
+           <div className="flex flex-col gap-4 w-48">
+              <div className="flex items-center gap-3 text-blue-500 mb-2">
+                <Target size={20} />
+                <h2 className="text-xs font-black text-slate-100 uppercase tracking-widest">Live HUD</h2>
+              </div>
+              
+              <div className="bg-slate-950 p-4 rounded-3xl border border-slate-800 shadow-inner">
+                <p className="text-[8px] text-slate-500 font-bold uppercase tracking-widest mb-1">X-Coordinate</p>
+                <p className="text-3xl font-mono font-bold text-blue-400">{robotPos.x}</p>
+              </div>
+
+              <div className="bg-slate-950 p-4 rounded-3xl border border-slate-800 shadow-inner">
+                <p className="text-[8px] text-slate-500 font-bold uppercase tracking-widest mb-1">Y-Coordinate</p>
+                <p className="text-3xl font-mono font-bold text-blue-400">{robotPos.y}</p>
+              </div>
+
+              <div className="mt-4 pt-4 border-t border-slate-800/50">
+                <p className="text-[8px] text-slate-600 font-black uppercase tracking-widest mb-4">Manual Override</p>
+                <form onSubmit={handleGoTo} className="space-y-3">
+                  <div className="flex gap-2">
+                    <input type="number" value={manualInput.x} onChange={(e) => setManualInput({...manualInput, x: e.target.value})} className="w-full bg-slate-950 border border-slate-800 rounded-xl p-2 text-center text-xs text-white outline-none focus:border-blue-500" placeholder="X" />
+                    <input type="number" value={manualInput.y} onChange={(e) => setManualInput({...manualInput, y: e.target.value})} className="w-full bg-slate-950 border border-slate-800 rounded-xl p-2 text-center text-xs text-white outline-none focus:border-blue-500" placeholder="Y" />
+                  </div>
+                  <button type="submit" disabled={!robotOnline || isProcessing || isViewer} className="w-full bg-blue-600 hover:bg-blue-500 text-white font-black text-[9px] py-3 rounded-xl uppercase tracking-widest shadow-lg active:scale-95 transition-all disabled:opacity-20">
+                    GoTo
+                  </button>
+                </form>
+              </div>
+           </div>
         </div>
 
-        {/* CONTROLS PANEL */}
-        <div className="w-[380px] flex flex-col gap-4 min-h-0 overflow-hidden">
+        {/* CONTROLS PANEL (SIDEBAR) */}
+        <div className="w-[320px] flex flex-col gap-4 min-h-0 overflow-hidden">
           
-          <div className="bg-slate-900 p-5 rounded-[2.5rem] border border-slate-800 flex-none relative shadow-xl">
+          {/* NAVIGATION CONTROLS */}
+          <div className="bg-slate-900 p-8 rounded-[2.5rem] border border-slate-800 flex-none shadow-xl relative">
             {isViewer && (
               <div className="absolute inset-0 bg-slate-900/60 z-10 rounded-[2.5rem] flex items-center justify-center backdrop-blur-[2px]">
-                <span className="text-[10px] font-black text-slate-400 bg-slate-950 px-3 py-1 rounded-full border border-slate-800 uppercase tracking-widest">Commander Access Required</span>
+                <span className="text-[9px] font-black text-slate-400 bg-slate-950 px-3 py-1 rounded-full border border-slate-800 uppercase tracking-widest">Commander Locked</span>
               </div>
             )}
-            <div className="flex items-center gap-3 mb-4 text-blue-500">
-              <Target size={20} />
-              <h2 className="text-xs font-black text-slate-100 uppercase tracking-widest">Targeting</h2>
-            </div>
-            <form onSubmit={handleGoTo} className="space-y-3">
-              <div className="flex gap-3">
-                <input type="number" value={manualInput.x} onChange={(e) => setManualInput({...manualInput, x: e.target.value})} className="flex-1 bg-slate-950 border border-slate-800 rounded-xl p-2 text-xs text-white outline-none focus:border-blue-500" placeholder="X" />
-                <input type="number" value={manualInput.y} onChange={(e) => setManualInput({...manualInput, y: e.target.value})} className="flex-1 bg-slate-950 border border-slate-800 rounded-xl p-2 text-xs text-white outline-none focus:border-blue-500" placeholder="Y" />
-              </div>
-              <button type="submit" disabled={!robotOnline || isProcessing} className="w-full bg-blue-600 text-white font-black text-[10px] py-3 rounded-xl uppercase tracking-widest shadow-lg active:scale-95 transition-all">
-                Execute Path
-              </button>
-            </form>
-          </div>
-
-          {/* ✅ FIXED D-PAD SECTION */}
-          <div className="bg-slate-900 p-6 rounded-[2.5rem] border border-slate-800 flex-none shadow-xl">
             <div className="grid grid-cols-3 gap-3 max-w-[160px] mx-auto">
               <div />
               <NavButton Icon={ChevronUp} onClick={() => handleMove('north')} disabled={!robotOnline || isProcessing || isViewer} />
@@ -212,6 +238,7 @@ const Dashboard = ({ user, token, onLogout }) => {
             </div>
           </div>
 
+          {/* RESET BUTTON */}
           <div className="bg-slate-900 p-4 rounded-[2.5rem] border border-slate-800 flex-none shadow-xl">
             <button 
               onClick={handleReset} 
@@ -231,7 +258,7 @@ const Dashboard = ({ user, token, onLogout }) => {
               {missions.map(m => (
                 <div key={m.id} className="flex justify-between items-center p-2.5 bg-slate-950 rounded-2xl border-l-4 border-blue-600 shadow-md">
                   <span className="font-mono font-bold text-[10px] text-slate-200 uppercase">{m.command}</span>
-                  <span className="text-[9px] font-bold text-slate-500">{new Date(m.timestamp).toLocaleTimeString()}</span>
+                  <span className="text-[9px] font-bold text-slate-600">{new Date(m.timestamp).toLocaleTimeString()}</span>
                 </div>
               ))}
             </div>
@@ -242,7 +269,7 @@ const Dashboard = ({ user, token, onLogout }) => {
   );
 };
 
-// ✅ UPDATED NavButton: Uses direct Icon component to guarantee visibility
+// NavButton Component
 const NavButton = ({ Icon, onClick, disabled }) => (
   <button 
     onClick={onClick} 
