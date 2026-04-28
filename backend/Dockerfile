@@ -2,8 +2,8 @@
 FROM python:3.11-slim
 
 # Set environment variables to optimize Python for Docker
-ENV PYTHONDONTWRITEBYTECODE 1
-ENV PYTHONUNBUFFERED 1
+ENV PYTHONDONTWRITEBYTECODE=1
+ENV PYTHONUNBUFFERED=1
 
 # Set the working directory inside the container
 WORKDIR /app

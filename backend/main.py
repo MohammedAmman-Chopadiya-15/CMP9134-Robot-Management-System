@@ -1,28 +1,43 @@
-from fastapi import FastAPI, WebSocket, WebSocketDisconnect
-from fastapi.middleware.cors import CORSMiddleware
 import asyncio
-import httpx
-import models, database
-from routers import auth, missions
+import os
 from typing import List
 
-# Initialize Database
+import httpx
+from fastapi import FastAPI, WebSocket, WebSocketDisconnect
+from fastapi.middleware.cors import CORSMiddleware
+
+import database
+import models
+from routers import auth, missions
+
+# Establishing the database schema and engine connection on application startup
 models.Base.metadata.create_all(bind=database.engine)
 
-app = FastAPI(title="Robot Management System API")
+app = FastAPI(
+    title="Robot Management System API",
+    description="A centralized gateway for secure robot telemetry and mission control."
+)
 
-# Robot Hardware URL (Internal)
-ROBOT_STATUS_URL = "http://localhost:5000/api/status"
+# --- DYNAMIC NETWORK CONFIGURATION (For Docker)---
+# Prioritizing the environment variable 'ROBOT_API_URL' to support containerized orchestration (Docker). If it's missing, default to the local developer simulator.
+ROBOT_BASE_URL = os.getenv("ROBOT_API_URL", "http://localhost:5000")
+ROBOT_STATUS_URL = f"{ROBOT_BASE_URL}/api/status"
 
+# Configuring CORS to bridge the gap between the frontend UI and this API.
+# Include local dev ports and standard Docker service mappings.
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:5173"],
+    allow_origins=[
+        "http://localhost:5173", 
+        "http://127.0.0.1:5173",
+        "http://localhost:8080"
+    ],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
-# --- WEBSOCKET MANAGER ---
+# --- REAL-TIME SESSION MANAGEMENT ---
 class ConnectionManager:
     def __init__(self):
         self.active_connections: List[WebSocket] = []
@@ -32,23 +47,31 @@ class ConnectionManager:
         self.active_connections.append(websocket)
 
     def disconnect(self, websocket: WebSocket):
-        self.active_connections.remove(websocket)
+        if websocket in self.active_connections:
+            self.active_connections.remove(websocket)
 
     async def broadcast(self, message: dict):
+        # We iterate through connections and handle stale or closed sockets gracefully
         for connection in self.active_connections:
             try:
                 await connection.send_json(message)
-            except:
+            except Exception:
+                # If a socket fails, we ignore it here; cleanup happens in the disconnect handler
                 continue
 
 manager = ConnectionManager()
 
-# --- BACKGROUND BROADCASTER ---
+# --- HARDWARE TELEMETRY BROADCASTER ---
 async def telemetry_broadcaster():
-    """Polls hardware status every 200ms and pushes to all UI clients."""
+    """
+    This background worker polls the robot hardware every 200ms.
+    It serves as the 'heartbeat' of the system, pushing live status updates 
+    to the frontend without requiring client-side polling.
+    """
     async with httpx.AsyncClient() as client:
         while True:
             try:
+                # Attempting to fetch the current hardware state from the simulator/robot
                 response = await client.get(ROBOT_STATUS_URL, timeout=1.0)
                 if response.status_code == 200:
                     await manager.broadcast({
@@ -56,33 +79,44 @@ async def telemetry_broadcaster():
                         "data": response.json()
                     })
             except Exception:
+                # If the hardware link is severed, inform the UI immediately
                 await manager.broadcast({
                     "type": "ERROR", 
-                    "message": "Hardware Link Lost"
+                    "message": "Hardware link lost or unresponsive."
                 })
             
-            # Update frequency: 5 times per second
             await asyncio.sleep(0.2)
 
 @app.on_event("startup")
 async def startup_event():
-    # Start the broadcaster task when the API starts
+    # Spawning the telemetry broadcaster as a persistent background task
     asyncio.create_task(telemetry_broadcaster())
 
-# --- WEBSOCKET ENDPOINT ---
+# --- WEBSOCKET GATEWAY ---
 @app.websocket("/ws/telemetry")
 async def websocket_endpoint(websocket: WebSocket):
+    """
+    Primary real-time data pipe. This endpoint maintains a persistent connection
+    with the dashboard to stream the robot's live coordinates and status.
+    """
     await manager.connect(websocket)
     try:
         while True:
-            # Keep connection open; receive_text prevents the socket from closing
+            # We keep the connection alive by waiting for heartbeat signals from the client
             await websocket.receive_text()
     except WebSocketDisconnect:
         manager.disconnect(websocket)
 
+# --- ROUTER INTEGRATION ---
+# Segmenting logic into auth and mission-specific domains for better maintainability
 app.include_router(auth.router)
 app.include_router(missions.router)
 
 @app.get("/")
 def root():
-    return {"message": "Cloud API Gateway Active"}
+    """Simple health check to verify the API gateway is reachable."""
+    return {
+        "status": "online",
+        "message": "Robot Management System Gateway is active.",
+        "upstream_host": ROBOT_BASE_URL
+    }
