@@ -103,27 +103,62 @@ const Dashboard = ({ user, token, onLogout }) => {
     } finally { setIsProcessing(false); }
   };
 
-  const renderGrid = () => {
+const renderGrid = () => {
     if (!mapData) return <div className="text-slate-500 animate-pulse font-mono uppercase tracking-widest text-sm">Linking Satellite Feed...</div>;
+    
     const displayGrid = [...mapData].reverse();
+    const axisLabels = Array.from({ length: 21 }, (_, i) => i);
+
     return (
-      <div className="aspect-square h-full grid grid-cols-[repeat(21,1fr)] grid-rows-[repeat(21,1fr)] bg-slate-950 border-[3px] border-slate-800 rounded-sm overflow-hidden shadow-2xl">
-        {displayGrid.map((row, visualY) => {
-          const hardwareY = 20 - visualY;
-          return row.map((cell, x) => {
-            const isObstacle = cell === 1;
-            const isRobotHere = robotPos.x === x && robotPos.y === hardwareY;
-            return (
-              <div 
-                key={`${x}-${hardwareY}`} 
-                className={`aspect-square border-[0.5px] border-slate-800/30 flex items-center justify-center transition-all duration-300 
-                ${isRobotHere ? 'bg-blue-600 text-white z-20 scale-110 shadow-lg' : isObstacle ? 'bg-slate-950' : 'bg-slate-100'}`}
-              >
-                {isRobotHere && <Bot size="70%" strokeWidth={2.5} className={telemetry.state === 'MOVING' ? "animate-pulse" : ""} />}
-              </div>
-            );
-          });
-        })}
+      <div className="relative p-10 bg-slate-900/50 rounded-3xl border border-slate-800/50 shadow-inner">
+        
+        {/* Y-AXIS LABELS (LEFT Gutter) */}
+        <div className="absolute left-3 top-10 bottom-10 w-6 grid grid-rows-[repeat(21,1fr)] text-[10px] font-mono font-bold text-white">
+          {axisLabels.slice().reverse().map(label => (
+            <div key={label} className="flex items-center justify-center">
+              {label}
+            </div>
+          ))}
+        </div>
+
+        {/* THE MAIN GRID */}
+        <div className="aspect-square h-[550px] grid grid-cols-[repeat(21,1fr)] grid-rows-[repeat(21,1fr)] bg-slate-950 border-[3px] border-slate-800 rounded-sm overflow-hidden shadow-2xl relative">
+          {displayGrid.map((row, visualY) => {
+            const hardwareY = 20 - visualY;
+            return row.map((cell, x) => {
+              const isObstacle = cell === 1;
+              const isRobotHere = robotPos.x === x && robotPos.y === hardwareY;
+              
+              return (
+                <div 
+                  key={`${x}-${hardwareY}`} 
+                  className={`relative aspect-square border-[0.5px] border-slate-800/20 flex items-center justify-center transition-all duration-300 group
+                  ${isRobotHere ? 'bg-blue-600 text-white z-20 scale-110 shadow-lg' : isObstacle ? 'bg-slate-950' : 'bg-slate-100/90'}`}
+                >
+                  {/* HOVER COORDINATES */}
+                  <span className={`absolute inset-0 flex items-center justify-center text-[7px] font-mono font-bold pointer-events-none transition-opacity
+                    ${isRobotHere ? 'text-blue-100 opacity-60' : isObstacle ? 'text-slate-800 opacity-0' : 'text-blue-600 opacity-0 group-hover:opacity-100'}`}>
+                    {x},{hardwareY}
+                  </span>
+
+                  {isRobotHere && (
+                    <Bot size="75%" strokeWidth={2.5} className={telemetry.state === 'MOVING' ? "animate-pulse" : ""} />
+                  )}
+                </div>
+              );
+            });
+          })}
+        </div>
+
+        {/* X-AXIS LABELS (BOTTOM Gutter) */}
+        <div className="absolute left-10 right-10 bottom-3 h-6 grid grid-cols-[repeat(21,1fr)] text-[10px] font-mono font-bold text-white">
+          {axisLabels.map(label => (
+            <div key={label} className="flex items-center justify-center">
+              {label}
+            </div>
+          ))}
+        </div>
+
       </div>
     );
   };
@@ -173,7 +208,7 @@ const Dashboard = ({ user, token, onLogout }) => {
 
       <div className="flex-1 flex gap-6 min-h-0 w-full overflow-hidden">
         
-        {/* ✅ MAIN PANEL: Grid + HUD Coordinates */}
+        {/* MAIN PANEL: Grid + HUD Coordinates */}
         <div className="flex-[2.5] bg-slate-900 rounded-[3rem] border border-slate-800 flex items-center justify-center p-12 overflow-hidden shadow-2xl gap-12">
            <div className="h-full flex items-center justify-center">
              {renderGrid()}
