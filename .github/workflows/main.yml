@@ -2,7 +2,7 @@ name: Robot Deployment Check CI
 
 on:
   push:
-    branches: [ "main", "dev" ]
+    branches: [ "main", "dev", "feature/cicd-optimization" ]
   pull_request:
     branches: [ "main" ]
 
@@ -33,10 +33,10 @@ jobs:
     - name: Build and Test with Docker Compose
       run: |
         # Run command to launch system containers
-        docker-compose up -d --build
+        docker compose up -d --build
 
         # Run the tests specified in pytest
-        docker-compose exec -T backend python -m pytest
+        docker compose exec -T backend python -m pytest
 
         # Cleanup: Stops containers and removes internal networks 
-        docker-compose down
+        docker compose down
