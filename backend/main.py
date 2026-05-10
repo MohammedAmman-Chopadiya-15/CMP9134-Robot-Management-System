@@ -1,6 +1,7 @@
 import asyncio
 import os
 from typing import List
+from contextlib import asynccontextmanager
 
 import httpx
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
@@ -13,15 +14,38 @@ from routers import auth, missions
 # Establishing the database schema and engine connection on application startup
 models.Base.metadata.create_all(bind=database.engine)
 
-app = FastAPI(
-    title="Robot Management System API",
-    description="A centralized gateway for secure robot telemetry and mission control."
-)
+
 
 # --- DYNAMIC NETWORK CONFIGURATION (For Docker)---
 # Prioritizing the environment variable 'ROBOT_API_URL' to support containerized orchestration (Docker). If it's missing, default to the local developer simulator.
 ROBOT_BASE_URL = os.getenv("ROBOT_API_URL", "http://localhost:5000")
 ROBOT_STATUS_URL = f"{ROBOT_BASE_URL}/api/status"
+
+# --- MODERN LIFESPAN MANAGEMENT ---
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+
+    # RUNS ON STARTUP
+    # Establishing the database schema
+    models.Base.metadata.create_all(bind=database.engine)
+    
+    # Spawning the telemetry broadcaster as a persistent background task
+    broadcast_task = asyncio.create_task(telemetry_broadcaster())
+    
+    yield # The application runs while this is suspended
+    
+    # RUNS ON SHUTDOWN
+    broadcast_task.cancel()
+    try:
+        await broadcast_task
+    except asyncio.CancelledError:
+        pass
+
+app = FastAPI(
+    title="Robot Management System API",
+    description="A centralized gateway for secure robot telemetry and mission control.",
+    lifespan=lifespan
+)
 
 # Configuring CORS to bridge the gap between the frontend UI and this API.
 # Include local dev ports and standard Docker service mappings.
@@ -63,11 +87,6 @@ manager = ConnectionManager()
 
 # --- HARDWARE TELEMETRY BROADCASTER ---
 async def telemetry_broadcaster():
-    """
-    This background worker polls the robot hardware every 200ms.
-    It serves as the 'heartbeat' of the system, pushing live status updates 
-    to the frontend without requiring client-side polling.
-    """
     async with httpx.AsyncClient() as client:
         while True:
             try:
@@ -86,11 +105,6 @@ async def telemetry_broadcaster():
                 })
             
             await asyncio.sleep(0.2)
-
-@app.on_event("startup")
-async def startup_event():
-    # Spawning the telemetry broadcaster as a persistent background task
-    asyncio.create_task(telemetry_broadcaster())
 
 # --- WEBSOCKET GATEWAY ---
 @app.websocket("/ws/telemetry")
