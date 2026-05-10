@@ -27,12 +27,21 @@ const Dashboard = ({ user, token, onLogout }) => {
     return { headers: { Authorization: `Bearer ${token}` } };
   }, [token]);
 
-  const refreshHistory = useCallback(async () => {
+const refreshHistory = useCallback(async () => {
     try {
       const historyRes = await axios.get('http://127.0.0.1:8000/missions/history', getAuthHeader());
       setMissions(historyRes.data.slice(0, 15));
     } catch (err) {
       console.error("History sync failed", err);
+    }
+  }, [getAuthHeader]);
+
+  const refreshMap = useCallback(async () => {
+    try {
+      const mapRes = await axios.get('http://127.0.0.1:8000/missions/map', getAuthHeader());
+      setMapData(mapRes.data.grid);
+    } catch (err) {
+      console.error("Map sync failed", err);
     }
   }, [getAuthHeader]);
 
@@ -61,8 +70,8 @@ const Dashboard = ({ user, token, onLogout }) => {
 
     const fetchStaticData = async () => {
       try {
-        const mapRes = await axios.get('http://127.0.0.1:8000/missions/map', getAuthHeader());
-        setMapData(mapRes.data.grid);
+
+        await refreshMap();
         await refreshHistory();
       } catch (err) {
         if (err.response?.status === 401) onLogout();
@@ -71,7 +80,7 @@ const Dashboard = ({ user, token, onLogout }) => {
 
     fetchStaticData();
     return () => socket.close();
-  }, [token, onLogout, refreshHistory, getAuthHeader]);
+  }, [token, onLogout, refreshHistory, refreshMap, getAuthHeader]); // Added refreshMap to dependencies
 
   const handleMove = async (direction) => {
     if (!robotOnline || telemetry.battery <= 0 || isProcessing || isViewer) return;
@@ -104,8 +113,13 @@ const Dashboard = ({ user, token, onLogout }) => {
     setIsProcessing(true);
     try {
       await axios.post(`http://127.0.0.1:8000/missions/reset?username=${user.username}`, {}, getAuthHeader());
+      
+      await refreshMap();
       await refreshHistory();
-    } finally { setIsProcessing(false); }
+      
+    } finally { 
+      setIsProcessing(false); 
+    }
   };
 
 const renderGrid = () => {
