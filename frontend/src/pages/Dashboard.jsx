@@ -2,8 +2,8 @@ import React, { useState, useEffect, useCallback } from 'react';
 import axios from 'axios';
 import { 
   Bot, ChevronUp, ChevronDown, ChevronLeft, ChevronRight, 
-  LogOut, History, Cpu, Battery, Activity, Target, 
-  MapPin, Zap, ShieldAlert, RotateCcw 
+  LogOut, History, Cpu, Activity, Target, 
+  Zap, ShieldAlert, RotateCcw, BatteryLow 
 } from 'lucide-react';
 
 const Dashboard = ({ user, token, onLogout }) => {
@@ -17,6 +17,11 @@ const Dashboard = ({ user, token, onLogout }) => {
   const [isProcessing, setIsProcessing] = useState(false);
 
   const isViewer = user.role === 'viewer';
+
+  // --- 🛠️ ROBUSTNESS DERIVED STATES ---
+  const isBatteryDead = robotOnline && telemetry.battery === 0;
+  const isLowBattery = robotOnline && telemetry.battery > 0 && telemetry.battery < 20;
+  const isSystemStuck = telemetry.state === 'STUCK';
 
   const getAuthHeader = useCallback(() => {
     return { headers: { Authorization: `Bearer ${token}` } };
@@ -81,7 +86,7 @@ const Dashboard = ({ user, token, onLogout }) => {
 
   const handleGoTo = async (e) => {
     e.preventDefault();
-    if (!robotOnline || isProcessing || isViewer) return;
+    if (!robotOnline || telemetry.battery <= 0 || isProcessing || isViewer) return;
     setIsProcessing(true);
     try {
       await axios.post('http://127.0.0.1:8000/missions/move', 
@@ -111,17 +116,12 @@ const renderGrid = () => {
 
     return (
       <div className="relative p-10 bg-slate-900/50 rounded-3xl border border-slate-800/50 shadow-inner">
-        
-        {/* Y-AXIS LABELS (LEFT Gutter) */}
         <div className="absolute left-3 top-10 bottom-10 w-6 grid grid-rows-[repeat(21,1fr)] text-[10px] font-mono font-bold text-white">
           {axisLabels.slice().reverse().map(label => (
-            <div key={label} className="flex items-center justify-center">
-              {label}
-            </div>
+            <div key={label} className="flex items-center justify-center">{label}</div>
           ))}
         </div>
 
-        {/* THE MAIN GRID */}
         <div className="aspect-square h-[550px] grid grid-cols-[repeat(21,1fr)] grid-rows-[repeat(21,1fr)] bg-slate-950 border-[3px] border-slate-800 rounded-sm overflow-hidden shadow-2xl relative">
           {displayGrid.map((row, visualY) => {
             const hardwareY = 20 - visualY;
@@ -135,12 +135,10 @@ const renderGrid = () => {
                   className={`relative aspect-square border-[0.5px] border-slate-800/20 flex items-center justify-center transition-all duration-300 group
                   ${isRobotHere ? 'bg-blue-600 text-white z-20 scale-110 shadow-lg' : isObstacle ? 'bg-slate-950' : 'bg-slate-100/90'}`}
                 >
-                  {/* HOVER COORDINATES */}
                   <span className={`absolute inset-0 flex items-center justify-center text-[7px] font-mono font-bold pointer-events-none transition-opacity
                     ${isRobotHere ? 'text-blue-100 opacity-60' : isObstacle ? 'text-slate-800 opacity-0' : 'text-blue-600 opacity-0 group-hover:opacity-100'}`}>
                     {x},{hardwareY}
                   </span>
-
                   {isRobotHere && (
                     <Bot size="75%" strokeWidth={2.5} className={telemetry.state === 'MOVING' ? "animate-pulse" : ""} />
                   )}
@@ -150,15 +148,11 @@ const renderGrid = () => {
           })}
         </div>
 
-        {/* X-AXIS LABELS (BOTTOM Gutter) */}
         <div className="absolute left-10 right-10 bottom-3 h-6 grid grid-cols-[repeat(21,1fr)] text-[10px] font-mono font-bold text-white">
           {axisLabels.map(label => (
-            <div key={label} className="flex items-center justify-center">
-              {label}
-            </div>
+            <div key={label} className="flex items-center justify-center">{label}</div>
           ))}
         </div>
-
       </div>
     );
   };
@@ -166,36 +160,70 @@ const renderGrid = () => {
   return (
     <div className="h-screen w-screen bg-slate-950 text-slate-100 flex flex-col p-6 overflow-hidden font-sans relative">
       
+      {/* 🚀 ROBUSTNESS FEATURE: BATTERY DEAD OVERLAY (ONLY) */}
+      {isBatteryDead && (
+        <div className="absolute inset-0 z-[101] bg-red-950/60 backdrop-blur-sm flex flex-col items-center justify-center animate-in zoom-in duration-300">
+          <div className="bg-slate-900 p-10 rounded-[3rem] border-2 border-red-600 shadow-[0_0_60px_rgba(220,38,38,0.4)] text-center max-w-md">
+            <BatteryLow size={64} className="text-red-600 mx-auto mb-6 animate-bounce" />
+            <h2 className="text-2xl font-black text-white uppercase tracking-tighter mb-2">Power Depleted</h2>
+            <p className="text-red-400 text-sm mb-8 font-mono font-bold uppercase tracking-widest">Robot shut down due to 0% battery. Manual recovery required.</p>
+            <button 
+                onClick={handleReset}
+                className="w-full bg-red-600 hover:bg-red-500 text-white font-black py-4 rounded-2xl uppercase tracking-widest transition-all active:scale-95"
+            >
+                Emergency Recharge & Reset
+            </button>
+          </div>
+        </div>
+      )}
+
       {/* HEADER SECTION */}
       <div className="flex-none flex justify-between items-center mb-6 bg-slate-900 p-5 rounded-[2rem] shadow-2xl border border-slate-800">
         <div className="flex items-center gap-8">
           <div className="flex items-center gap-3">
             <Activity className="text-blue-500" size={28} />
             <h1 className="text-3xl font-black tracking-tighter text-white uppercase leading-none">Mission Control</h1>
-            <span className={`text-[9px] px-2 py-0.5 rounded-full border ${robotOnline ? 'border-green-500/50 text-green-400' : 'border-red-500/50 text-red-400'} font-bold uppercase ml-2`}>
+            <span className={`text-[9px] px-2 py-0.5 rounded-full border transition-colors duration-500 ${
+                robotOnline ? 'border-green-500/50 text-green-400 bg-green-500/5' : 'border-red-500/50 text-red-400 bg-red-500/5'
+            } font-bold uppercase ml-2`}>
               {backendStatus}
             </span>
           </div>
           <div className="flex gap-6 border-l border-slate-800 pl-8 font-mono text-[10px] uppercase text-slate-400">
-             ID: <span className="text-blue-400 font-bold">{user.username}</span> | Access: <span className={isViewer ? "text-slate-500" : "text-amber-500 font-bold"}>{user.role}</span>
+               ID: <span className="text-blue-400 font-bold">{user.username}</span> | Access: <span className={isViewer ? "text-slate-500" : "text-amber-500 font-bold"}>{user.role}</span>
           </div>
         </div>
         
         <div className="flex items-center gap-4">
-          <div className="bg-slate-950 px-4 py-2.5 rounded-2xl border border-slate-800 flex flex-col shadow-inner min-w-[80px]">
-              <span className="text-[8px] font-black text-slate-500 uppercase tracking-widest mb-1">Power</span>
+          
+          {/* ⚡ BATTERY HUD WITH RED SHIFT */}
+          <div className={`px-4 py-2.5 rounded-2xl border transition-all duration-300 flex flex-col shadow-inner min-w-[100px] ${
+            isBatteryDead ? 'bg-red-600 border-white animate-pulse' :
+            isLowBattery ? 'bg-red-950/40 border-red-500 animate-pulse shadow-[0_0_15px_rgba(239,68,68,0.2)]' : 
+            'bg-slate-950 border-slate-800'
+          }`}>
+              <span className={`text-[8px] font-black uppercase tracking-widest mb-1 ${
+                  isBatteryDead ? 'text-white' : isLowBattery ? 'text-red-400' : 'text-slate-500'
+              }`}>
+                {isBatteryDead ? "DEAD" : isLowBattery ? "CRITICAL" : "Power"}
+              </span>
               <div className="flex items-center gap-2">
-                <Zap size={12} className={telemetry.battery > 20 ? "text-green-400" : "text-red-500 animate-pulse"} />
-                <span className="text-xs font-mono font-bold">{telemetry.battery}%</span>
+                <Zap size={12} className={isBatteryDead ? "text-white" : isLowBattery ? "text-red-500" : "text-green-400"} />
+                <span className={`text-xs font-mono font-bold ${isBatteryDead ? 'text-white' : isLowBattery ? 'text-red-400' : 'text-white'}`}>
+                    {telemetry.battery}%
+                </span>
               </div>
           </div>
 
           <div className="bg-slate-950 px-4 py-2.5 rounded-2xl border border-slate-800 flex flex-col shadow-inner min-w-[110px]">
             <span className="text-[8px] font-black text-slate-500 uppercase tracking-widest mb-1">System State</span>
             <div className="flex items-center gap-2">
-              {telemetry.state === 'STUCK' ? <ShieldAlert size={14} className="text-red-500 animate-bounce" /> : <Cpu size={14} className="text-blue-400" />}
-              <span className={`text-xs font-black uppercase tracking-tighter ${telemetry.state === 'MOVING' ? 'text-green-400 animate-pulse' : telemetry.state === 'STUCK' ? 'text-red-500' : 'text-blue-400'}`}>
-                {telemetry.state}
+              {isSystemStuck || isBatteryDead ? <ShieldAlert size={14} className="text-red-500 animate-bounce" /> : <Cpu size={14} className="text-blue-400" />}
+              <span className={`text-xs font-black uppercase tracking-tighter ${
+                telemetry.state === 'MOVING' ? 'text-green-400 animate-pulse' : 
+                isSystemStuck || isBatteryDead ? 'text-red-500' : 'text-blue-400'
+              }`}>
+                {isBatteryDead ? "OFFLINE" : telemetry.state}
               </span>
             </div>
           </div>
@@ -208,13 +236,9 @@ const renderGrid = () => {
 
       <div className="flex-1 flex gap-6 min-h-0 w-full overflow-hidden">
         
-        {/* MAIN PANEL: Grid + HUD Coordinates */}
-        <div className="flex-[2.5] bg-slate-900 rounded-[3rem] border border-slate-800 flex items-center justify-center p-12 overflow-hidden shadow-2xl gap-12">
-           <div className="h-full flex items-center justify-center">
-             {renderGrid()}
-           </div>
+        <div className="flex-[2.5] bg-slate-900 rounded-[3rem] border border-slate-800 flex items-center justify-center p-12 overflow-hidden shadow-2xl gap-12 relative">
+           <div className="h-full flex items-center justify-center">{renderGrid()}</div>
 
-           {/* HUD STATS NEXT TO GRID */}
            <div className="flex flex-col gap-4 w-48">
               <div className="flex items-center gap-3 text-blue-500 mb-2">
                 <Target size={20} />
@@ -238,7 +262,7 @@ const renderGrid = () => {
                     <input type="number" value={manualInput.x} onChange={(e) => setManualInput({...manualInput, x: e.target.value})} className="w-full bg-slate-950 border border-slate-800 rounded-xl p-2 text-center text-xs text-white outline-none focus:border-blue-500" placeholder="X" />
                     <input type="number" value={manualInput.y} onChange={(e) => setManualInput({...manualInput, y: e.target.value})} className="w-full bg-slate-950 border border-slate-800 rounded-xl p-2 text-center text-xs text-white outline-none focus:border-blue-500" placeholder="Y" />
                   </div>
-                  <button type="submit" disabled={!robotOnline || isProcessing || isViewer} className="w-full bg-blue-600 hover:bg-blue-500 text-white font-black text-[9px] py-3 rounded-xl uppercase tracking-widest shadow-lg active:scale-95 transition-all disabled:opacity-20">
+                  <button type="submit" disabled={!robotOnline || telemetry.battery <= 0 || isProcessing || isViewer} className="w-full bg-blue-600 hover:bg-blue-500 text-white font-black text-[9px] py-3 rounded-xl uppercase tracking-widest shadow-lg active:scale-95 transition-all disabled:opacity-20">
                     GoTo
                   </button>
                 </form>
@@ -246,45 +270,37 @@ const renderGrid = () => {
            </div>
         </div>
 
-        {/* CONTROLS PANEL (SIDEBAR) */}
+        {/* SIDEBAR */}
         <div className="w-[320px] flex flex-col gap-4 min-h-0 overflow-hidden">
-          
-          {/* NAVIGATION CONTROLS */}
           <div className="bg-slate-900 p-8 rounded-[2.5rem] border border-slate-800 flex-none shadow-xl relative">
-            {isViewer && (
+            {(isViewer || isBatteryDead || !robotOnline) && (
               <div className="absolute inset-0 bg-slate-900/60 z-10 rounded-[2.5rem] flex items-center justify-center backdrop-blur-[2px]">
-                <span className="text-[9px] font-black text-slate-400 bg-slate-950 px-3 py-1 rounded-full border border-slate-800 uppercase tracking-widest">Commander Locked</span>
+                <span className="text-[9px] font-black text-slate-400 bg-slate-950 px-3 py-1 rounded-full border border-slate-800 uppercase tracking-widest">
+                    {!robotOnline ? "Signal Lost" : isBatteryDead ? "Power Offline" : "Commander Locked"}
+                </span>
               </div>
             )}
             <div className="grid grid-cols-3 gap-3 max-w-[160px] mx-auto">
               <div />
-              <NavButton Icon={ChevronUp} onClick={() => handleMove('north')} disabled={!robotOnline || isProcessing || isViewer} />
+              <NavButton Icon={ChevronUp} onClick={() => handleMove('north')} disabled={!robotOnline || telemetry.battery <= 0 || isProcessing || isViewer} />
               <div />
-              
-              <NavButton Icon={ChevronLeft} onClick={() => handleMove('west')} disabled={!robotOnline || isProcessing || isViewer} />
+              <NavButton Icon={ChevronLeft} onClick={() => handleMove('west')} disabled={!robotOnline || telemetry.battery <= 0 || isProcessing || isViewer} />
               <div className="flex items-center justify-center">
-                <div className={`w-2.5 h-2.5 rounded-full ${robotOnline ? "bg-blue-500 animate-ping shadow-[0_0_8px_rgba(59,130,246,0.8)]" : "bg-slate-700"}`} />
+                <div className={`w-2.5 h-2.5 rounded-full ${robotOnline && !isBatteryDead ? "bg-blue-500 animate-ping" : "bg-slate-700"}`} />
               </div>
-              <NavButton Icon={ChevronRight} onClick={() => handleMove('east')} disabled={!robotOnline || isProcessing || isViewer} />
-              
+              <NavButton Icon={ChevronRight} onClick={() => handleMove('east')} disabled={!robotOnline || telemetry.battery <= 0 || isProcessing || isViewer} />
               <div />
-              <NavButton Icon={ChevronDown} onClick={() => handleMove('south')} disabled={!robotOnline || isProcessing || isViewer} />
+              <NavButton Icon={ChevronDown} onClick={() => handleMove('south')} disabled={!robotOnline || telemetry.battery <= 0 || isProcessing || isViewer} />
               <div />
             </div>
           </div>
 
-          {/* RESET BUTTON */}
           <div className="bg-slate-900 p-4 rounded-[2.5rem] border border-slate-800 flex-none shadow-xl">
-            <button 
-              onClick={handleReset} 
-              disabled={!robotOnline || isProcessing || isViewer}
-              className="w-full bg-red-500/10 hover:bg-red-500 text-red-500 hover:text-white border border-red-500/20 font-black text-[10px] py-3 rounded-xl transition-all uppercase tracking-widest flex items-center justify-center gap-2"
-            >
+            <button onClick={handleReset} disabled={isProcessing || isViewer} className="w-full bg-red-500/10 hover:bg-red-500 text-red-500 hover:text-white border border-red-500/20 font-black text-[10px] py-3 rounded-xl transition-all uppercase tracking-widest flex items-center justify-center gap-2">
               <RotateCcw size={14} className={isProcessing ? "animate-spin" : ""} /> Emergency Reset
             </button>
           </div>
 
-          {/* AUDIT TRAIL */}
           <div className="bg-slate-900 p-5 rounded-[2.5rem] border border-slate-800 flex-1 flex flex-col min-h-0 shadow-2xl">
             <h2 className="text-[10px] font-black text-slate-500 uppercase mb-3 flex items-center gap-2 tracking-[0.2em]">
                 <History size={16} /> Audit Trail
@@ -304,13 +320,8 @@ const renderGrid = () => {
   );
 };
 
-// NavButton Component
 const NavButton = ({ Icon, onClick, disabled }) => (
-  <button 
-    onClick={onClick} 
-    disabled={disabled} 
-    className="aspect-square flex items-center justify-center bg-slate-800 rounded-2xl text-slate-200 hover:bg-blue-600 hover:text-white transition-all disabled:opacity-20 border border-slate-700 p-3 active:scale-90 shadow-md group"
-  >
+  <button onClick={onClick} disabled={disabled} className="aspect-square flex items-center justify-center bg-slate-800 rounded-2xl text-slate-200 hover:bg-blue-600 hover:text-white transition-all disabled:opacity-20 border border-slate-700 p-3 active:scale-90 shadow-md group">
     <Icon size={24} strokeWidth={2.5} className="group-active:scale-110 transition-transform" />
   </button>
 );
