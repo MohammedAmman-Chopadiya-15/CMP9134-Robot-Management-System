@@ -1,8 +1,14 @@
 # Python
 backend/venv/
 backend/__pycache__/
-backend/*.pyc
+backend/routers/__pycache__/
 backend/.env
+
+# Compiled python files (Everywhere)
+**/__pycache__/
+**/*.pyc
+**/*.pyo
+**/*.pyd
 
 # Databases
 backend/*.db
