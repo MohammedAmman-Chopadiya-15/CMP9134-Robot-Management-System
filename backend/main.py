@@ -9,9 +9,12 @@ from fastapi.middleware.cors import CORSMiddleware
 import database
 import models
 from routers import auth, missions
-from services.robot_client import RobotClient  # ✅ Singleton Import
 
-# ---TELEMETRY SUBJECT ---
+from services.robot_client import RobotClient
+from database import SessionLocal
+from init_db import seed_default_users
+
+# --- TELEMETRY SUBJECT ---
 class TelemetrySubject:
     """
     Maintains a list of Observers (WebSockets) and notifies them whenever the Robot Hardware (the state) changes.
@@ -35,7 +38,6 @@ class TelemetrySubject:
             try:
                 await connection.send_json(message)
             except Exception:
-                # Cleanup handled by disconnect event
                 continue
 
 # Instantiate the Subject
@@ -43,11 +45,7 @@ telemetry_notifier = TelemetrySubject()
 
 # --- MODULAR TELEMETRY BROADCASTER ---
 async def telemetry_broadcaster():
-    """
-    Service Layer logic: Uses the RobotClient Singleton to poll hardware
-    and the TelemetrySubject to notify observers.
-    """
-    robot_service = RobotClient()  # Accessing the Singleton instance
+    robot_service = RobotClient()
     
     while True:
         try:
@@ -68,13 +66,26 @@ async def telemetry_broadcaster():
 # --- LIFESPAN MANAGEMENT ---
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    # STARTUP
+
+    # ------------------ STARTUP ------------------
+    # 1. Initialize DB structures
     models.Base.metadata.create_all(bind=database.engine)
+    
+    # 2. Run data seed matrix for Commander & Viewer
+    db = SessionLocal()
+    try:
+        seed_default_users(db)
+    finally:
+        db.close()
+        
+    # 3. Spin up asynchronous telemetry polling loops
     broadcast_task = asyncio.create_task(telemetry_broadcaster())
+    
     yield
-    # SHUTDOWN
+    
+    # ------------------ SHUTDOWN ------------------
     broadcast_task.cancel()
-    await RobotClient().close()  # Cleanly close Singleton connection pool
+    await RobotClient().close()  # Cleanly closes Singleton connection pool
 
 app = FastAPI(
     title="Robot Management System API",
@@ -90,7 +101,7 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# --- WEBSOCKET GATEWAY---
+# --- WEBSOCKET GATEWAY ---
 @app.websocket("/ws/telemetry")
 async def websocket_endpoint(websocket: WebSocket):
     await telemetry_notifier.attach(websocket)
