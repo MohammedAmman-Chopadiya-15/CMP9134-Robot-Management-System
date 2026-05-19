@@ -14,6 +14,9 @@ services:
     environment:
       - ROBOT_API_URL=http://robot-sim:5000
       - JWT_SECRET=your_super_secret_key_here
+    volumes:
+      - ./backend:/app
+      - robot_db_data:/data
     depends_on:
       - robot-sim
     restart: always
@@ -30,3 +33,6 @@ services:
 networks:
   default:
     name: robot-network
+
+volumes:
+  robot_db_data:
