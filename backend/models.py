@@ -7,14 +7,14 @@ class User(Base):
 
     id = Column(Integer, primary_key=True, index=True)
     username = Column(String, unique=True, index=True)
-    password = Column(String)  # In a real app, we would hash this!
-    role = Column(String)      # "commander" or "viewer"
+    hashed_password = Column(String)
+    role = Column(String, default="viewer")
 
 class Mission(Base):
     __tablename__ = "missions"
 
     id = Column(Integer, primary_key=True, index=True)
-    command = Column(String)       # e.g., "MOVE_NORTH", "GRAB"
-    status = Column(String)        # e.g., "SUCCESS", "FAILED"
-    robot_id = Column(String)      # The ID of the robot controlled
+    command = Column(String)
+    status = Column(String)
+    robot_id = Column(String)
     timestamp = Column(DateTime, default=datetime.utcnow)
