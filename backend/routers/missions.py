@@ -7,7 +7,7 @@ from fastapi import APIRouter, Depends, HTTPException
 import models, schemas, database, security
 
 # --- DYNAMIC HARDWARE CONFIGURATION ---
-# Ensure the API can discover the robot simulator within a Docker network. If not, fallback to a local developer environment on port 5000.
+# Ensure the API can discover the robot simulator within the Docker network. If not, fallback to a local developer environment on port 5000.
 ROBOT_HOST = os.getenv("ROBOT_API_URL", "http://localhost:5000")
 ROBOT_BASE_URL = f"{ROBOT_HOST}/api"
 
@@ -18,6 +18,7 @@ router = APIRouter(
 
 # --- TELEMETRY & DIAGNOSTICS ---
 
+# Fetch all the basic info from robot container's /status endpoint
 @router.get("/status")
 async def get_robot_hardware_status(current_user: dict = Depends(security.get_current_user_data)):
     """
@@ -31,23 +32,18 @@ async def get_robot_hardware_status(current_user: dict = Depends(security.get_cu
         except httpx.RequestError:
             return {"connected": False, "message": "The robot interface is currently unreachable."}
 
+# Get a list of all telemetry commands in the correct order for a clear audit trail.
 @router.get("/history")
 def get_mission_history(
     db: Session = Depends(database.get_db),
     current_user: dict = Depends(security.get_current_user_data)
 ):
-    """
-    Retrieves the chronological audit trail of all issued commands.
-    This provides transparency for mission oversight and operational review.
-    """
     return db.query(models.Mission).order_by(models.Mission.timestamp.desc()).limit(10).all()
 
+
+# Gets the 21*21 grid matrix that will be shown as the map on UI
 @router.get("/map")
 async def get_robot_map(current_user: dict = Depends(security.get_current_user_data)):
-    """
-    Fetches the spatial environment grid. This read-only data is vital
-    for synchronized path planning on the client side.
-    """
     async with httpx.AsyncClient() as client:
         try:
             response = await client.get(f"{ROBOT_BASE_URL}/map", timeout=2.0)

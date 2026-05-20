@@ -290,7 +290,7 @@ const renderGrid = () => {
             {(isViewer || isBatteryDead || !robotOnline) && (
               <div className="absolute inset-0 bg-slate-900/60 z-10 rounded-[2.5rem] flex items-center justify-center backdrop-blur-[2px]">
                 <span className="text-[9px] font-black text-slate-400 bg-slate-950 px-3 py-1 rounded-full border border-slate-800 uppercase tracking-widest">
-                    {!robotOnline ? "Signal Lost" : isBatteryDead ? "Power Offline" : "Locked"}
+                    {!robotOnline ? "Signal Lost" : isBatteryDead ? "Power Offline" : "Commander Locked"}
                 </span>
               </div>
             )}

@@ -2,9 +2,9 @@ name: Robot Deployment Check CI
 
 on:
   push:
-    branches: [ "main", "dev", "feature/cicd-optimization" ]
+    branches: [ "main", "dev" ]
   pull_request:
-    branches: [ "main" ]
+    branches: [ "main", "dev" ]
 
 jobs:
   test-and-build:

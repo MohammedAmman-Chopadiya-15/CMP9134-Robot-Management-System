@@ -1,19 +1,19 @@
 from pydantic import BaseModel
 from typing import Optional
 
-# What a user looks like when they Register
 class UserCreate(BaseModel):
+    # Defining input fields required for generating a new profile account
     username: str
     password: str
     role: Optional[str] = "viewer"
 
-# What a user looks like when they Login
 class UserLogin(BaseModel):
+    # Verifying incoming credentials against existing storage parameters during login
     username: str
     password: str
 
-# What a movement command looks like
 class MoveRequest(BaseModel):
+    # Structuring data payloads for executing navigation and steering actions
     username: str
     direction: str
     target_x: int = None

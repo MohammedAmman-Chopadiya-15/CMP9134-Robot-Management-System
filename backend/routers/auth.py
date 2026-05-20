@@ -6,7 +6,7 @@ router = APIRouter(prefix="/auth", tags=["Auth"])
 
 @router.post("/register")
 def register(user_data: schemas.UserCreate, db: Session = Depends(database.get_db)):
-    # Check if user exists
+    # Check if user already exists
     db_user = db.query(models.User).filter(models.User.username == user_data.username).first()
     if db_user:
         raise HTTPException(status_code=400, detail="Username already registered")
@@ -25,7 +25,7 @@ def register(user_data: schemas.UserCreate, db: Session = Depends(database.get_d
 def login(user_data: schemas.UserLogin, db: Session = Depends(database.get_db)):
     user = db.query(models.User).filter(models.User.username == user_data.username).first()
     
-    # Verify hashed password
+    # Verify the entered password and existing hashed password
     if not user or not security.verify_password(user_data.password, user.hashed_password):
         raise HTTPException(status_code=401, detail="Invalid credentials")
     
