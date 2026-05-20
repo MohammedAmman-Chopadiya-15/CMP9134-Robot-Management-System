@@ -2,20 +2,16 @@ import pytest
 from httpx import AsyncClient, ASGITransport
 from main import app
 
-"""
-Integration Test: Verifying that a 'viewer' role results in a 403 Forbidden
-when attempting a navigation command.
-"""
-
 @pytest.mark.asyncio
 async def test_viewer_access_denied():
 
-# Wrap the FastAPI app in an ASGITransport for compatibility with httpx 0.28+
+    # Configuring the execution context to route through the local application instance
     transport = ASGITransport(app=app)
     
+    # Establishing an isolated mock network pipeline for testing endpoint parameters
     async with AsyncClient(transport=transport, base_url="http://test") as ac:
-        # We attempt a move request without a valid JWT token
+        # Dispatching an unauthorized coordinate update command to verify permission boundaries
         response = await ac.post("/missions/move", json={"direction": "north"})
         
-        # Verify the security layer blocks the request
+        # Validating that the core security layer intercepts the call with rejected status codes
         assert response.status_code in [401, 403]

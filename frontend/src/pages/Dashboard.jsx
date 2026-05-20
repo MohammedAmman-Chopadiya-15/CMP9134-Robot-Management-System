@@ -18,7 +18,7 @@ const Dashboard = ({ user, token, onLogout }) => {
 
   const isViewer = user.role === 'viewer';
 
-  // --- 🛠️ ROBUSTNESS DERIVED STATES ---
+  // Determining system safety flags based on the incoming hardware states
   const isBatteryDead = robotOnline && telemetry.battery === 0;
   const isLowBattery = robotOnline && telemetry.battery > 0 && telemetry.battery < 20;
   const isSystemStuck = telemetry.state === 'STUCK';
@@ -27,17 +27,21 @@ const Dashboard = ({ user, token, onLogout }) => {
     return { headers: { Authorization: `Bearer ${token}` } };
   }, [token]);
 
-const refreshHistory = useCallback(async () => {
+  const refreshHistory = useCallback(async () => {
+    // Skipping history data fetching entirely if the active user is a viewer
+    if (isViewer) return;
     try {
+      // Pulling the latest movement logs from the backend database history
       const historyRes = await axios.get('http://127.0.0.1:8000/missions/history', getAuthHeader());
       setMissions(historyRes.data.slice(0, 15));
     } catch (err) {
       console.error("History sync failed", err);
     }
-  }, [getAuthHeader]);
+  }, [getAuthHeader, isViewer]);
 
   const refreshMap = useCallback(async () => {
     try {
+      // Requesting the structural grid matrix config from the mission endpoint
       const mapRes = await axios.get('http://127.0.0.1:8000/missions/map', getAuthHeader());
       setMapData(mapRes.data.grid);
     } catch (err) {
@@ -51,6 +55,7 @@ const refreshHistory = useCallback(async () => {
       return;
     }
 
+    // Setting up an active live pipeline to receive real-time telemetry events
     const socket = new WebSocket(`ws://localhost:8000/ws/telemetry?token=${token}`);
 
     socket.onmessage = (event) => {
@@ -63,6 +68,7 @@ const refreshHistory = useCallback(async () => {
         setBackendStatus("Systems Nominal");
       }
       if (message.type === 'ERROR') {
+        // Flipping tracking states to reflect lost physical network hardware links
         setRobotOnline(false);
         setBackendStatus("Signal Lost"); 
       }
@@ -70,7 +76,6 @@ const refreshHistory = useCallback(async () => {
 
     const fetchStaticData = async () => {
       try {
-
         await refreshMap();
         await refreshHistory();
       } catch (err) {
@@ -80,12 +85,13 @@ const refreshHistory = useCallback(async () => {
 
     fetchStaticData();
     return () => socket.close();
-  }, [token, onLogout, refreshHistory, refreshMap, getAuthHeader]); // Added refreshMap to dependencies
+  }, [token, onLogout, refreshHistory, refreshMap, getAuthHeader]);
 
   const handleMove = async (direction) => {
     if (!robotOnline || telemetry.battery <= 0 || isProcessing || isViewer) return;
     setIsProcessing(true);
     try {
+      // Transmitting directional step steering requests to the server backend
       await axios.post('http://127.0.0.1:8000/missions/move', { username: user.username, direction }, getAuthHeader());
       await refreshHistory();
     } catch (err) {
@@ -98,6 +104,7 @@ const refreshHistory = useCallback(async () => {
     if (!robotOnline || telemetry.battery <= 0 || isProcessing || isViewer) return;
     setIsProcessing(true);
     try {
+      // Routing custom input coordinates over to the steering navigation router
       await axios.post('http://127.0.0.1:8000/missions/move', 
         { username: user.username, direction: "manual", target_x: parseInt(manualInput.x), target_y: parseInt(manualInput.y) }, 
         getAuthHeader()
@@ -112,17 +119,16 @@ const refreshHistory = useCallback(async () => {
     if (isProcessing || isViewer || !window.confirm("Perform full system reset?")) return;
     setIsProcessing(true);
     try {
+      // Triggering full system state clearing calls via post queries
       await axios.post(`http://127.0.0.1:8000/missions/reset?username=${user.username}`, {}, getAuthHeader());
-      
       await refreshMap();
       await refreshHistory();
-      
     } finally { 
       setIsProcessing(false); 
     }
   };
 
-const renderGrid = () => {
+  const renderGrid = () => {
     if (!mapData) return <div className="text-slate-500 animate-pulse font-mono uppercase tracking-widest text-sm">Linking Satellite Feed...</div>;
     
     const displayGrid = [...mapData].reverse();
@@ -174,7 +180,6 @@ const renderGrid = () => {
   return (
     <div className="h-screen w-screen bg-slate-950 text-slate-100 flex flex-col p-6 overflow-hidden font-sans relative">
       
-      {/* 🚀 ROBUSTNESS FEATURE: BATTERY DEAD OVERLAY (ONLY) */}
       {isBatteryDead && (
         <div className="absolute inset-0 z-[101] bg-red-950/60 backdrop-blur-sm flex flex-col items-center justify-center animate-in zoom-in duration-300">
           <div className="bg-slate-900 p-10 rounded-[3rem] border-2 border-red-600 shadow-[0_0_60px_rgba(220,38,38,0.4)] text-center max-w-md">
@@ -210,7 +215,7 @@ const renderGrid = () => {
         
         <div className="flex items-center gap-4">
           
-          {/* ⚡ BATTERY HUD WITH RED SHIFT */}
+          {/* BATTERY HUD WITH RED SHIFT */}
           <div className={`px-4 py-2.5 rounded-2xl border transition-all duration-300 flex flex-col shadow-inner min-w-[100px] ${
             isBatteryDead ? 'bg-red-600 border-white animate-pulse' :
             isLowBattery ? 'bg-red-950/40 border-red-500 animate-pulse shadow-[0_0_15px_rgba(239,68,68,0.2)]' : 
@@ -290,7 +295,7 @@ const renderGrid = () => {
             {(isViewer || isBatteryDead || !robotOnline) && (
               <div className="absolute inset-0 bg-slate-900/60 z-10 rounded-[2.5rem] flex items-center justify-center backdrop-blur-[2px]">
                 <span className="text-[9px] font-black text-slate-400 bg-slate-950 px-3 py-1 rounded-full border border-slate-800 uppercase tracking-widest">
-                    {!robotOnline ? "Signal Lost" : isBatteryDead ? "Power Offline" : "Locked"}
+                    {!robotOnline ? "Signal Lost" : isBatteryDead ? "Power Offline" : "Commander Locked"}
                 </span>
               </div>
             )}
@@ -315,9 +320,17 @@ const renderGrid = () => {
             </button>
           </div>
 
-          <div className="bg-slate-900 p-5 rounded-[2.5rem] border border-slate-800 flex-1 flex flex-col min-h-0 shadow-2xl">
+          <div className="bg-slate-900 p-5 rounded-[2.5rem] border border-slate-800 flex-1 flex flex-col min-h-0 shadow-2xl relative">
+            {/* Blurring and locking the entire history interface container for viewer profiles */}
+            {isViewer && (
+              <div className="absolute inset-0 bg-slate-900/60 z-10 rounded-[2.5rem] flex items-center justify-center backdrop-blur-[2px]">
+                <span className="text-[9px] font-black text-slate-400 bg-slate-950 px-3 py-1 rounded-full border border-slate-800 uppercase tracking-widest">
+                  History Locked
+                </span>
+              </div>
+            )}
             <h2 className="text-[10px] font-black text-slate-500 uppercase mb-3 flex items-center gap-2 tracking-[0.2em]">
-                <History size={16} /> Audit Trail
+                 <History size={16} /> Audit Trail
             </h2>
             <div className="flex-1 overflow-y-auto space-y-2 pr-2 scrollbar-hide">
               {missions.map(m => (

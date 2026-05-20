@@ -1,29 +1,29 @@
-# Use an official lightweight Python image
-FROM python:3.11-slim
+FROM python:3.11-slim 
 
-# Set environment variables to optimize Python for Docker
+# Using python as base image
+
 ENV PYTHONDONTWRITEBYTECODE=1
 ENV PYTHONUNBUFFERED=1
 
-# Set the working directory inside the container
+# Creating and moving into the main folder for our application files
 WORKDIR /app
 
-# Install system dependencies (needed for some Python packages)
+# Downloading necessary system tools and clearing setup files to stay light
 RUN apt-get update && apt-get install -y --no-install-recommends \
     build-essential \
     && rm -rf /var/lib/apt/lists/*
 
-# Copy only requirements first to leverage Docker cache
+# Moving just the package list file over to help speed up future builds
 COPY requirements.txt .
 
-# Install dependencies
+# Installing all the required Python libraries for the project
 RUN pip install --no-cache-dir -r requirements.txt
 
-# Copy the rest of your backend code
+# Copying the rest of the backend files into setup folder
 COPY . .
 
-# Expose the FastAPI port
+# Opening up network communication on the main web server channel
 EXPOSE 8000
 
-# Start the server (using 0.0.0.0 to allow external access within Docker)
+# Launching the backend application so external devices can connect to it
 CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000"]

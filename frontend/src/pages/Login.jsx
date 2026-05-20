@@ -13,6 +13,7 @@ const Login = ({ onLogin }) => {
     setError('');
     setLoading(true);
 
+    // Choosing the right API pathway depending on the form state
     const endpoint = isRegistering ? '/register' : '/login';
     
     try {
@@ -26,7 +27,7 @@ const Login = ({ onLogin }) => {
       } else {
         const { access_token, user } = res.data;
         
-        // Debug check: Verify the data is actually there
+        // Verifying that the expected login tokens are present in the response
         if (access_token && user) {
           onLogin(user, access_token);
         } else {
@@ -39,6 +40,7 @@ const Login = ({ onLogin }) => {
       const message = err.response?.data?.detail || "Connection Failure: Gateway Offline";
       setError(message);
     } finally {
+      // Resetting the form submission tracker once the network request finishes
       setLoading(false);
     }
   };

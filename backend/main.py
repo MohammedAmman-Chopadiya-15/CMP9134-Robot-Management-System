@@ -16,46 +16,48 @@ from init_db import seed_default_users
 
 # --- TELEMETRY SUBJECT ---
 class TelemetrySubject:
-    """
-    Maintains a list of Observers (WebSockets) and notifies them whenever the Robot Hardware (the state) changes.
-    """
+    # Managing a dynamic roster of connected client observers
     def __init__(self):
         self._observers: List[WebSocket] = []
 
     async def attach(self, websocket: WebSocket):
-        """Register a new frontend observer."""
+        # Accepting the handshake and tracking the new subscriber connection
         await websocket.accept()
         self._observers.append(websocket)
 
     def detach(self, websocket: WebSocket):
-        """Unregister an observer on disconnect."""
+        # Dropping the inactive user channel from the tracking system
         if websocket in self._observers:
             self._observers.remove(websocket)
 
     async def notify(self, message: dict):
-        """Broadcast updates to all active observers."""
+        # Distributing state updates across all connected subscriber terminals
         for connection in self._observers:
             try:
                 await connection.send_json(message)
             except Exception:
                 continue
 
-# Instantiate the Subject
+
 telemetry_notifier = TelemetrySubject()
 
 # --- MODULAR TELEMETRY BROADCASTER ---
 async def telemetry_broadcaster():
+    # Hooking into the centralized connection engine instance
     robot_service = RobotClient()
     
     while True:
         try:
+            # Polling current metrics directly from the machine hardware interface
             response = await robot_service.get_robot_status()
             if response.status_code == 200:
+                # Pushing updated metrics out to all listening app interfaces
                 await telemetry_notifier.notify({
                     "type": "TELEMETRY_UPDATE",
                     "data": response.json()
                 })
         except Exception:
+            # Broadcasting alerts when communication links drop unexpectedly
             await telemetry_notifier.notify({
                 "type": "ERROR", 
                 "message": "Hardware link lost or unresponsive."
@@ -104,11 +106,14 @@ app.add_middleware(
 # --- WEBSOCKET GATEWAY ---
 @app.websocket("/ws/telemetry")
 async def websocket_endpoint(websocket: WebSocket):
+    # Linking incoming network requests to our event notification system
     await telemetry_notifier.attach(websocket)
     try:
         while True:
+            # Keeping the open pipeline alive by waiting for incoming heartbeats
             await websocket.receive_text()
     except WebSocketDisconnect:
+        # Erasing the socket reference when user terminals disconnect
         telemetry_notifier.detach(websocket)
 
 # --- ROUTERS ---

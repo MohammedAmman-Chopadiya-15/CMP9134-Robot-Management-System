@@ -5,18 +5,15 @@ from services.robot_client import RobotClient
 
 @pytest.mark.asyncio
 async def test_backend_handles_robot_offline():
-    """
-    Verify the system handles hardware timeouts gracefully.
-    """
+    # Instantiating the client component to evaluate resilience behaviors
     robot_service = RobotClient()
     
-    # Use 'patch' to intercept the HTTP call and Raise a ConnectError instead of working.
-
+    # Intercepting the outward connection to mock an unresponsive hardware environment
     with patch.object(robot_service.client, 'get', side_effect=httpx.ConnectError("Connection Refused")):
         try:
-            # Get Robot Status
+            # Triggering the data retrieval operation against the disabled target
             await robot_service.get_robot_status()
         except Exception as e:
-            # 4. If the error is caught/recognized without crashing the app, the test passes
+            # Asserting that the runtime identifies the connection failure appropriately
             assert isinstance(e, httpx.ConnectError)
             print("\nSuccessfully caught simulated hardware failure!")
