@@ -52,6 +52,18 @@ This command initializes the isolated `robot-network` bridge, provisions the dat
 
 ---
 
+
+## Default Credentials & Access Control
+
+The database seeds automatically with two pre-configured evaluation accounts representing the distinct system authorization layers:
+
+| Role | Username | Password | Access Capabilities |
+| :--- | :--- | :--- | :--- |
+| **Commander** | `Commander` | `Commander@2026` | Full structural execution, manual direction overrides, system resets, and full audit trail access. |
+| **Viewer** | `Viewer` | `Viewer@2026` | Real-time position tracking and visual telemetry stream monitor. Directional inputs, GoTo commands, and audit logs are fully locked down. |
+
+---
+
 ## Testing Protocol
 
 ### 1. Automated Testing Suite
