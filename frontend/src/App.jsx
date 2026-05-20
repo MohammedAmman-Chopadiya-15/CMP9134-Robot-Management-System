@@ -6,8 +6,8 @@ function App() {
   const [session, setSession] = useState({ user: null, token: null });
   const [loading, setLoading] = useState(true);
 
-  // 1. Persistence check: Keep user logged in on refresh
   useEffect(() => {
+    // Checking browser storage for active credentials during initial setup
     const savedUser = localStorage.getItem('robot_user');
     const savedToken = localStorage.getItem('robot_token');
     
@@ -21,15 +21,15 @@ function App() {
     setLoading(false);
   }, []);
 
-  // 2. Synchronized login handler
   const handleLogin = (userData, token) => {
+    // Writing identity profiles into local browser memory upon authentication
     localStorage.setItem('robot_token', token);
     localStorage.setItem('robot_user', JSON.stringify(userData));
     setSession({ user: userData, token: token });
   };
 
-  // 3. Logout handler
   const handleLogout = () => {
+    // Wiping credential data completely from local memory during signout
     localStorage.clear();
     setSession({ user: null, token: null });
   };
@@ -44,12 +44,12 @@ function App() {
     );
   }
 
-  // Ensure we pass "onLogin" as the prop name
   if (!session.user) {
     return <Login onLogin={handleLogin} />;
   }
 
   return (
+    // Directing verified operators straight to the main status view
     <Dashboard 
       user={session.user} 
       token={session.token} 

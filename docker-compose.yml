@@ -1,37 +1,41 @@
 services:
-  # Robot Simulator
   robot-sim:
+    # Container for robot-sim
     image: ghcr.io/francescodelduchetto/cmp9134_2526_robotsim:latest
     ports:
       - "5000:5000"
     restart: always
 
-  # 2. FastAPI Backend Web Server
   backend:
+    # Building the application server from files in the backend folder
     build: ./backend
     ports:
       - "8000:8000"
+    # Network addresses and secret parameters
     environment:
       - ROBOT_API_URL=http://robot-sim:5000
       - JWT_SECRET=your_super_secret_key_here
+    # Mounting the local folder and volume space for database
     volumes:
       - ./backend:/app
       - robot_db_data:/data
+    # Waits for the simulator container to launch before starting up
     depends_on:
       - robot-sim
     restart: always
 
-  # 3. Frontend Web App
   frontend:
+    # Compiling the user interface files from the frontend folder structure
     build: ./frontend
     ports:
-      - "5173:80" # Mapping host 5173 to container Nginx port 80
+      - "5173:80" 
     depends_on:
       - backend
     restart: always
 
 networks:
   default:
+    # Establishing a dedicated virtual network for internal service communication
     name: robot-network
 
 volumes:
